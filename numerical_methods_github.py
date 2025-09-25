@@ -1,0 +1,173 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+#Defining the base class for ODE solvers
+class OdeSolver:
+    def __init__(self, function, xInitial, yInitial, stepSize, numSteps):
+        self.function = function
+        self.xInitial = xInitial
+        self.yInitial = yInitial
+        self.stepSize = stepSize
+        self.numSteps = int(numSteps)
+        self.xSteps = np.zeros(numSteps + 1)
+
+        #Handling scalar and vector inputs separately for flexibility
+        if np.ndim(yInitial) == 0:
+            self.ySteps = np.zeros(numSteps + 1)
+        else:
+            self.ySteps = np.zeros((numSteps + 1, len(yInitial)))
+
+        self.xSteps[0] = self.xInitial
+        self.ySteps[0] = self.yInitial
+
+    def runMethod(self):
+        #Running the solver for all steps
+        for n in range(self.numSteps):
+            self.steps(n)
+        return self.xSteps, self.ySteps
+
+#Implementing Euler's method
+class EulerMethod(OdeSolver):
+    def steps(self, n):
+        #Computing next step using Euler's formula
+        self.xSteps[n + 1] = self.xInitial + (n + 1) * self.stepSize
+        self.ySteps[n + 1] = self.ySteps[n] + self.stepSize * self.function(self.xSteps[n], self.ySteps[n])
+
+#Implementing Adams-Bashforth two-step method
+class AdamsBashforthMethod(OdeSolver):
+    def steps(self, n):
+        #Using Euler for first step, then Adams-Bashforth
+        self.xSteps[n + 1] = self.xInitial + (n + 1) * self.stepSize
+        if n == 0:
+            self.ySteps[n + 1] = self.ySteps[n] + self.stepSize * self.function(self.xSteps[n], self.ySteps[n])
+        else:
+            self.ySteps[n + 1] = self.ySteps[n] + self.stepSize * (
+                1.5 * self.function(self.xSteps[n], self.ySteps[n])
+                - 0.5 * self.function(self.xSteps[n - 1], self.ySteps[n - 1])
+            )
+
+#Implementing fourth-order Runge-Kutta method
+class Rk4Method(OdeSolver):
+    def steps(self, n):
+        #Computing RK4 coefficients and updating steps
+        x, y, h = self.xSteps[n], self.ySteps[n], self.stepSize
+        k1 = self.function(x, y)
+        k2 = self.function(x + 0.5 * h, y + 0.5 * h * k1)
+        k3 = self.function(x + 0.5 * h, y + 0.5 * h * k2)
+        k4 = self.function(x + h, y + h * k3)
+        self.ySteps[n + 1] = y + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+        self.xSteps[n + 1] = self.xInitial + (n + 1) * h
+
+#Computing the wavefunction at a target point for Schrödinger equation
+def phi(pValue, alpha, stepSize, xTarget=1.0, xInitial=0.0, yInitial=np.array([0.0, 1.0])):
+    def equationSystem(x, Y):
+        y, z = Y
+        dyDx = z
+        dzDx = -pValue**2 * (1 + x)**(-alpha) * y
+        return np.array([dyDx, dzDx])
+
+    numSteps = int(xTarget / stepSize)
+    solver = Rk4Method(equationSystem, xInitial, yInitial, stepSize, numSteps)
+    xVals, yVals = solver.runMethod()
+    return yVals[-1, 0]  #Returning y at xTarget
+
+#Finding eigenvalue using false position method
+def falsePosition(pInitial1, pInitial2, alpha, stepSize, tolerance=5e-6):
+    iterates = []
+    fInitial1 = phi(pInitial1, alpha, stepSize)
+    fInitial2 = phi(pInitial2, alpha, stepSize)
+
+    #Iterating until convergence within tolerance
+    while abs(pInitial2 - pInitial1) > tolerance:
+        pStar = (fInitial2 * pInitial1 - fInitial1 * pInitial2) / (fInitial2 - fInitial1)
+        fStar = phi(pStar, alpha, stepSize)
+        iterates.append((pStar, fStar))
+        if fInitial1 * fStar < 0:
+            pInitial2, fInitial2 = pStar, fStar
+        else:
+            pInitial1, fInitial1 = pStar, fStar
+
+    pRoot = (pInitial1 + pInitial2) / 2
+    return pRoot, iterates
+
+#Example run for a simple harmonic oscillator
+def exampleHarmonicOscillator():
+    def harmonicOscillator(x, Y):
+        y, z = Y
+        dyDx = z
+        dzDx = -y  #Simple harmonic oscillator
+        return np.array([dyDx, dzDx])
+
+    #Setting initial conditions and parameters
+    xInitial = 0.0
+    yInitial = np.array([0.0, 1.0])
+    stepSize = 0.1
+    numSteps = 100
+
+    #Running solvers
+    eulerSolver = EulerMethod(harmonicOscillator, xInitial, yInitial, stepSize, numSteps)
+    abSolver = AdamsBashforthMethod(harmonicOscillator, xInitial, yInitial, stepSize, numSteps)
+    rk4Solver = Rk4Method(harmonicOscillator, xInitial, yInitial, stepSize, numSteps)
+
+    xEuler, yEuler = eulerSolver.runMethod()
+    xAb, yAb = abSolver.runMethod()
+    xRk4, yRk4 = rk4Solver.runMethod()
+
+    #Exact solution: y = sin(x)
+    xExact = np.linspace(xInitial, xInitial + numSteps * stepSize, 500)
+    yExact = np.sin(xExact)
+
+    #Plotting results
+    plt.plot(xEuler, yEuler[:, 0], 'o-', label='Euler')
+    plt.plot(xAb, yAb[:, 0], 's-', label='Adams-Bashforth')
+    plt.plot(xRk4, yRk4[:, 0], '^-', label='Runge-Kutta 4')
+    plt.plot(xExact, yExact, 'k-', label='Exact (sin(x))')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Harmonic Oscillator Solutions')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+#Example run for Schrödinger equation eigenvalue
+def exampleSchrodinger():
+    alpha = 2.0
+    stepSize = 0.001
+    pInitial1 = 4.0
+    pInitial2 = 5.0
+    tolerance = 5e-6
+
+    #Finding eigenvalue
+    pRoot, iterates = falsePosition(pInitial1, pInitial2, alpha, stepSize, tolerance)
+
+    #Computing the eigenfunction
+    def equationSystem(x, Y):
+        y, z = Y
+        dyDx = z
+        dzDx = -pRoot**2 * (1 + x)**(-alpha) * y
+        return np.array([dyDx, dzDx])
+
+    xInitial = 0.0
+    yInitial = np.array([0.0, 1.0])
+    xTarget = 1.0
+    numSteps = int(xTarget / stepSize)
+    solver = Rk4Method(equationSystem, xInitial, yInitial, stepSize, numSteps)
+    xVals, yVals = solver.runMethod()
+
+    #Normalizing the eigenfunction
+    weight = (1 + xVals) ** (-alpha)
+    normFactor = np.sqrt(np.trapz(weight * yVals[:, 0]**2, xVals))
+    yValsNormalized = yVals[:, 0] / normFactor
+
+    #Plotting the eigenfunction
+    plt.plot(xVals, yValsNormalized, label=f'Eigenfunction, p≈{pRoot:.4f}')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Schrödinger Equation Eigenfunction')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+if __name__ == "__main__":
+    exampleHarmonicOscillator()
+    exampleSchrodinger()
