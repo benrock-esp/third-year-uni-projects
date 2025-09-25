@@ -1,173 +1,451 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
-#Defining the base class for ODE solvers
-class OdeSolver:
-    def __init__(self, function, xInitial, yInitial, stepSize, numSteps):
-        self.function = function
-        self.xInitial = xInitial
-        self.yInitial = yInitial
+# Define ODE function and exact solution
+def defineOdeFunction(x, y):
+    return -8 * y + 6 * np.exp(-2 * x)
+
+def computeExactSolution(x):
+    return np.exp(-2 * x) - np.exp(-8 * x)
+
+# Define base class for ODE solvers
+class ODESolver:
+    def __init__(self, odeFunction, x0, y0, stepSize, numSteps):
+        self.odeFunction = odeFunction
+        self.x0 = x0
+        self.y0 = y0
         self.stepSize = stepSize
         self.numSteps = int(numSteps)
-        self.xSteps = np.zeros(numSteps + 1)
+        self.xValues = np.zeros(numSteps + 1)
 
-        #Handling scalar and vector inputs separately for flexibility
-        if np.ndim(yInitial) == 0:
-            self.ySteps = np.zeros(numSteps + 1)
+        # Handle scalar or vector initial conditions
+        if np.ndim(y0) == 0:
+            self.yValues = np.zeros(numSteps + 1)
         else:
-            self.ySteps = np.zeros((numSteps + 1, len(yInitial)))
+            self.yValues = np.zeros((numSteps + 1, len(y0)))
 
-        self.xSteps[0] = self.xInitial
-        self.ySteps[0] = self.yInitial
+        self.xValues[0] = self.x0
+        self.yValues[0] = self.y0
 
-    def runMethod(self):
-        #Running the solver for all steps
+    def solveOde(self):
         for n in range(self.numSteps):
-            self.steps(n)
-        return self.xSteps, self.ySteps
+            self.computeNextStep(n)
+        return self.xValues, self.yValues
 
-#Implementing Euler's method
-class EulerMethod(OdeSolver):
-    def steps(self, n):
-        #Computing next step using Euler's formula
-        self.xSteps[n + 1] = self.xInitial + (n + 1) * self.stepSize
-        self.ySteps[n + 1] = self.ySteps[n] + self.stepSize * self.function(self.xSteps[n], self.ySteps[n])
+class EulerSolver(ODESolver):
+    def computeNextStep(self, n):
+        self.xValues[n + 1] = self.x0 + (n + 1) * self.stepSize
+        self.yValues[n + 1] = self.yValues[n] + self.stepSize * self.odeFunction(self.xValues[n], self.yValues[n])
 
-#Implementing Adams-Bashforth two-step method
-class AdamsBashforthMethod(OdeSolver):
-    def steps(self, n):
-        #Using Euler for first step, then Adams-Bashforth
-        self.xSteps[n + 1] = self.xInitial + (n + 1) * self.stepSize
+class AdamsBashforth2Solver(ODESolver):
+    def computeNextStep(self, n):
         if n == 0:
-            self.ySteps[n + 1] = self.ySteps[n] + self.stepSize * self.function(self.xSteps[n], self.ySteps[n])
+            # Use Euler method for first step
+            self.xValues[n + 1] = self.x0 + (n + 1) * self.stepSize
+            self.yValues[n + 1] = self.yValues[n] + self.stepSize * self.odeFunction(self.xValues[n], self.yValues[n])
         else:
-            self.ySteps[n + 1] = self.ySteps[n] + self.stepSize * (
-                1.5 * self.function(self.xSteps[n], self.ySteps[n])
-                - 0.5 * self.function(self.xSteps[n - 1], self.ySteps[n - 1])
+            self.xValues[n + 1] = self.x0 + (n + 1) * self.stepSize
+            self.yValues[n + 1] = self.yValues[n] + self.stepSize * (
+                1.5 * self.odeFunction(self.xValues[n], self.yValues[n])
+                - 0.5 * self.odeFunction(self.xValues[n - 1], self.yValues[n - 1])
             )
 
-#Implementing fourth-order Runge-Kutta method
-class Rk4Method(OdeSolver):
-    def steps(self, n):
-        #Computing RK4 coefficients and updating steps
-        x, y, h = self.xSteps[n], self.ySteps[n], self.stepSize
-        k1 = self.function(x, y)
-        k2 = self.function(x + 0.5 * h, y + 0.5 * h * k1)
-        k3 = self.function(x + 0.5 * h, y + 0.5 * h * k2)
-        k4 = self.function(x + h, y + h * k3)
-        self.ySteps[n + 1] = y + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
-        self.xSteps[n + 1] = self.xInitial + (n + 1) * h
+class RungeKutta4Solver(ODESolver):
+    def computeNextStep(self, n):
+        x, y, h = self.xValues[n], self.yValues[n], self.stepSize
+        k1 = self.odeFunction(x, y)
+        k2 = self.odeFunction(x + 0.5 * h, y + 0.5 * h * k1)
+        k3 = self.odeFunction(x + 0.5 * h, y + 0.5 * h * k2)
+        k4 = self.odeFunction(x + h, y + h * k3)
+        self.yValues[n + 1] = y + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+        self.xValues[n + 1] = self.x0 + (n + 1) * h
 
-#Computing the wavefunction at a target point for Schrödinger equation
-def phi(pValue, alpha, stepSize, xTarget=1.0, xInitial=0.0, yInitial=np.array([0.0, 1.0])):
+# Test the solvers against known function to check they have been written correctly
+def testSolvers():
+    xStart = 0
+    yStart = 0
+    stepSize = 0.1
+    numSteps = 50
+
+    # Initialize solvers
+    eulerSolver = EulerSolver(defineOdeFunction, xStart, yStart, stepSize, numSteps)
+    ab2Solver = AdamsBashforth2Solver(defineOdeFunction, xStart, yStart, stepSize, numSteps)
+    rk4Solver = RungeKutta4Solver(defineOdeFunction, xStart, yStart, stepSize, numSteps)
+
+    # Run solvers
+    xEuler, yEuler = eulerSolver.solveOde()
+    xAb2, yAb2 = ab2Solver.solveOde()
+    xRk4, yRk4 = rk4Solver.solveOde()
+
+    # Compute exact solution for plotting
+    xExact = np.linspace(xStart, xStart + numSteps * stepSize, 500)
+    yExactVals = computeExactSolution(xExact)
+
+    # Plot results
+    plt.plot(xEuler, yEuler, 'o-', label='Euler')
+    plt.plot(xAb2, yAb2, 's-', label='Adams-Bashforth 2')
+    plt.plot(xRk4, yRk4, '^-', label='Runge-Kutta 4')
+    plt.plot(xExact, yExactVals, 'k', label='Exact')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Comparison of ODE Solvers')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+def computeStabilityData(stepSize):
+    numSteps = int(3.0 / stepSize)
+    solver = AdamsBashforth2Solver(defineOdeFunction, x0=0.0, y0=0.0, stepSize=stepSize, numSteps=numSteps)
+    xValues, yValues = solver.solveOde()
+    yExact = computeExactSolution(xValues)
+    error = yValues - yExact
+
+    # Create table of results
+    df = pd.DataFrame({
+        "x_n": xValues,
+        "Y_n": yValues,
+        "y_exact": yExact,
+        "Error": error
+    })
+    return df
+
+# Run the stability analysis
+def analyzeStability():
+    for h in [0.5, 0.375, 0.25, 0.125, 0.1, 0.05]:
+        print(f"\n=== Results for h = {h} ===")
+        df = computeStabilityData(h)
+        print(df.to_string(index=False))
+
+        xValues = df["x_n"].values
+        err = np.abs(df["Error"].values)
+        zeroCheck = err > 1e-12  # Handle log(0) errors
+
+        # Estimate gamma for instability
+        print(f"\nRunning gamma estimates for h={h}:")
+        for i in range(len(xValues) - 2):
+            tailMask = np.zeros_like(zeroCheck, dtype=bool)
+            tailMask[i:] = True
+            mask = zeroCheck & tailMask
+            if mask.sum() > 2:
+                coeffs = np.polyfit(xValues[mask], np.log(err[mask]), 1)
+                gammaEst = coeffs[0]
+                print(f"x >= {xValues[i]:.3f} -> gamma ≈ {gammaEst:.3f}")
+
+# Plot numerical solutions
+def plotNumericalSolutions():
+    stepSize = 0.08
+    xMax = 2.0
+    numSteps = int(xMax / stepSize)
+
+    # Initialize solvers
+    euler = EulerSolver(defineOdeFunction, 0.0, 0.0, stepSize, numSteps)
+    ab2 = AdamsBashforth2Solver(defineOdeFunction, 0.0, 0.0, stepSize, numSteps)
+    rk4 = RungeKutta4Solver(defineOdeFunction, 0.0, 0.0, stepSize, numSteps)
+
+    # Run solvers
+    xEuler, yEuler = euler.solveOde()
+    xAb2, yAb2 = ab2.solveOde()
+    xRk4, yRk4 = rk4.solveOde()
+    yExactValues = computeExactSolution(xEuler)
+
+    # Create table of results
+    dfResults = pd.DataFrame({
+        "x_n": xEuler,
+        "Euler": yEuler,
+        "AB2": yAb2,
+        "RK4": yRk4,
+        "Exact": yExactValues
+    })
+    print(dfResults.to_string(index=False))
+
+    # Plot results
+    plt.plot(xEuler, yEuler, 'o-', label="Euler")
+    plt.plot(xAb2, yAb2, 's-', label="AB2")
+    plt.plot(xRk4, yRk4, '^-', label="RK4")
+    plt.plot(xEuler, yExactValues, 'k--', label="Exact Values")
+    plt.xlabel("x_n")
+    plt.ylabel("Y_n")
+    plt.title(f"Numerical solutions with h={stepSize}")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+# Analyze error convergence
+def analyzeErrorConvergence():
+    xTarget = 0.16
+    kValues = np.arange(0, 16)
+    errorsEuler = []
+    errorsAb2 = []
+    errorsRk4 = []
+    hValues = []
+
+    for k in kValues:
+        n = 2**k
+        h = 0.16 / n
+        hValues.append(h)
+
+        # Run solvers
+        euler = EulerSolver(defineOdeFunction, 0.0, 0.0, h, n)
+        ab2 = AdamsBashforth2Solver(defineOdeFunction, 0.0, 0.0, h, n)
+        rk4 = RungeKutta4Solver(defineOdeFunction, 0.0, 0.0, h, n)
+
+        xEuler, yEuler = euler.solveOde()
+        xAb2, yAb2 = ab2.solveOde()
+        xRk4, yRk4 = rk4.solveOde()
+
+        # Calculate and append errors
+        yExactVal = computeExactSolution(xTarget)
+        errorsEuler.append(np.abs(yEuler[-1] - yExactVal))
+        errorsAb2.append(np.abs(yAb2[-1] - yExactVal))
+        errorsRk4.append(np.abs(yRk4[-1] - yExactVal))
+
+    # Create table of errors
+    dfErrors = pd.DataFrame({
+        "h": hValues,
+        "Error_Euler": errorsEuler,
+        "Error_AB2": errorsAb2,
+        "Error_RK4": errorsRk4
+    })
+    print(dfErrors.to_string(index=False))
+
+    # Calculate the gradients
+    logH = np.log(hValues)
+    logErrorsEuler = np.log(errorsEuler)
+    logErrorsAb2 = np.log(errorsAb2)
+    logErrorsRk4 = np.log(errorsRk4)
+
+    mask = (logH >= -8) & (logH <= -4)
+    filteredLogH = logH[mask]
+    filteredLogErrorsEuler = logErrorsEuler[mask]
+    filteredLogErrorsAb2 = logErrorsAb2[mask]
+    filteredLogErrorsRk4 = logErrorsRk4[mask]
+
+    slopeEuler, _ = np.polyfit(filteredLogH, filteredLogErrorsEuler, 1)
+    slopeAb2, _ = np.polyfit(filteredLogH, filteredLogErrorsAb2, 1)
+    slopeRk4, _ = np.polyfit(filteredLogH, filteredLogErrorsRk4, 1)
+
+    print("\nGradients in the range log(h) = [-8, -4]:")
+    print(f"Euler method: {slopeEuler:.4f}")
+    print(f"AB2 method: {slopeAb2:.4f}")
+    print(f"RK4 method: {slopeRk4:.4f}")
+
+    # Plot log-log error graph
+    plt.plot(logH, logErrorsEuler, 'o-', label="Euler")
+    plt.plot(logH, logErrorsAb2, 's-', label="AB2")
+    plt.plot(logH, logErrorsRk4, '^-', label="RK4")
+    plt.xlabel("log(h)")
+    plt.ylabel("log(|E_n| at x = 0.16)")
+    plt.title("Plot of log(Global error) vs log(h)")
+    plt.legend()
+    plt.show()
+
+def computeAnalyticSolution():
+    alpha = 2
+    p = (0.25 + (np.pi / np.log(2))**2)**0.5
+
+    # Define system of equations
     def equationSystem(x, Y):
         y, z = Y
         dyDx = z
-        dzDx = -pValue**2 * (1 + x)**(-alpha) * y
+        dzDx = -p**2 * (1 + x)**(-alpha) * y
         return np.array([dyDx, dzDx])
 
-    numSteps = int(xTarget / stepSize)
-    solver = Rk4Method(equationSystem, xInitial, yInitial, stepSize, numSteps)
-    xVals, yVals = solver.runMethod()
-    return yVals[-1, 0]  #Returning y at xTarget
+    # Set initial conditions
+    Y0 = np.array([0.0, 1.0])
+    x0 = 0
+    h = 0.001
+    nSteps = int(1 / h)
 
-#Finding eigenvalue using false position method
-def falsePosition(pInitial1, pInitial2, alpha, stepSize, tolerance=5e-6):
+    solver = RungeKutta4Solver(equationSystem, x0, Y0, h, nSteps)
+    xValues, YValues = solver.solveOde()
+
+    yVals = YValues[:, 0]
+    zVals = YValues[:, 1]
+
+    print(f"y(1) ≈ {yVals[-1]:.6e}, z(1) ≈ {zVals[-1]:.6e}")
+
+def analyzeNumericalErrors():
+    alpha = 2
+
+    # Define system of equations
+    def equationSystem(x, Y, p):
+        y, z = Y
+        dyDx = z
+        dzDx = -p**2 * (1 + x)**(-alpha) * y
+        return np.array([dyDx, dzDx])
+
+    # Run RK4 solver for given p and h
+    def runRk4(p, h):
+        Y0 = np.array([0.0, 1.0])
+        x0 = 0.0
+        nSteps = int(1 / h)
+        solver = RungeKutta4Solver(lambda x, Y: equationSystem(x, Y, p), x0, Y0, h, nSteps)
+        xVals, YVals = solver.solveOde()
+        yVals = YVals[:, 0]
+        zVals = YVals[:, 1]
+        return yVals[-1], zVals[-1]
+
+    kValues = np.arange(0, 13)
+    hValues = 0.1 / (2**kValues)
+
+    # Compute results for p=4
+    resultsP4 = []
+    for h in hValues:
+        w = (4**2 - 0.25)**0.5
+        yeOne = 1 / w * (2**0.5) * np.sin(w * np.log(2))
+        y1, z1 = runRk4(4, h)
+        err = y1 - yeOne
+        resultsP4.append([h, y1, z1, err])
+
+    # Compute results for p=5
+    resultsP5 = []
+    for h in hValues:
+        w = (5**2 - 0.25)**0.5
+        yeOne = 1 / w * (2**0.5) * np.sin(w * np.log(2))
+        y1, z1 = runRk4(5, h)
+        err = y1 - yeOne
+        resultsP5.append([h, y1, z1, err])
+
+    # Create tables
+    dfP4 = pd.DataFrame(resultsP4, columns=["h", "y(1)", "z(1)", "Error"])
+    dfP5 = pd.DataFrame(resultsP5, columns=["h", "y(1)", "z(1)", "Error"])
+
+    print("\n=== Results for p=4 ===")
+    print(dfP4.to_string(index=False))
+
+    print("\n=== Results for p=5 ===")
+    print(dfP5.to_string(index=False))
+
+    # Plot errors
+    plt.plot(np.log(dfP4["h"]), np.log(np.abs(dfP4["Error"])), 'o-', label="p=4")
+    plt.plot(np.log(dfP5["h"]), np.log(np.abs(dfP5["Error"])), 's-', label="p=5")
+    plt.xlabel("log(h)")
+    plt.ylabel("log(|Error at x=1|)")
+    plt.title("Global error at x=1 vs step size h (log-log)")
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+def computePhi(p, alpha, h, xTarget=1.0, x0=0.0, Y0=np.array([0.0, 1.0])):
+    def equationSystem(x, Y):
+        y, z = Y
+        dyDx = z
+        dzDx = -p**2 * (1 + x)**(-alpha) * y
+        return np.array([dyDx, dzDx])
+
+    nSteps = int(xTarget / h)
+    solver = RungeKutta4Solver(equationSystem, x0, Y0, h, nSteps)
+    xVals, YVals = solver.solveOde()
+    return YVals[-1, 0]  # y at xTarget
+
+def findEigenvalueWithFalsePosition(p1, p2, alpha, h, tolerance=5e-6):
     iterates = []
-    fInitial1 = phi(pInitial1, alpha, stepSize)
-    fInitial2 = phi(pInitial2, alpha, stepSize)
+    f1 = computePhi(p1, alpha, h)
+    f2 = computePhi(p2, alpha, h)
 
-    #Iterating until convergence within tolerance
-    while abs(pInitial2 - pInitial1) > tolerance:
-        pStar = (fInitial2 * pInitial1 - fInitial1 * pInitial2) / (fInitial2 - fInitial1)
-        fStar = phi(pStar, alpha, stepSize)
-        iterates.append((pStar, fStar))
-        if fInitial1 * fStar < 0:
-            pInitial2, fInitial2 = pStar, fStar
+    while abs(p2 - p1) > tolerance:
+        ps = (f2 * p1 - f1 * p2) / (f2 - f1)
+        fPs = computePhi(ps, alpha, h)
+        iterates.append((ps, fPs))
+        if f1 * fPs < 0:
+            p2, f2 = ps, fPs
         else:
-            pInitial1, fInitial1 = pStar, fStar
+            p1, f1 = ps, fPs
 
-    pRoot = (pInitial1 + pInitial2) / 2
+    pRoot = (p1 + p2) / 2
     return pRoot, iterates
 
-#Example run for a simple harmonic oscillator
-def exampleHarmonicOscillator():
-    def harmonicOscillator(x, Y):
-        y, z = Y
-        dyDx = z
-        dzDx = -y  #Simple harmonic oscillator
-        return np.array([dyDx, dzDx])
-
-    #Setting initial conditions and parameters
-    xInitial = 0.0
-    yInitial = np.array([0.0, 1.0])
-    stepSize = 0.1
-    numSteps = 100
-
-    #Running solvers
-    eulerSolver = EulerMethod(harmonicOscillator, xInitial, yInitial, stepSize, numSteps)
-    abSolver = AdamsBashforthMethod(harmonicOscillator, xInitial, yInitial, stepSize, numSteps)
-    rk4Solver = Rk4Method(harmonicOscillator, xInitial, yInitial, stepSize, numSteps)
-
-    xEuler, yEuler = eulerSolver.runMethod()
-    xAb, yAb = abSolver.runMethod()
-    xRk4, yRk4 = rk4Solver.runMethod()
-
-    #Exact solution: y = sin(x)
-    xExact = np.linspace(xInitial, xInitial + numSteps * stepSize, 500)
-    yExact = np.sin(xExact)
-
-    #Plotting results
-    plt.plot(xEuler, yEuler[:, 0], 'o-', label='Euler')
-    plt.plot(xAb, yAb[:, 0], 's-', label='Adams-Bashforth')
-    plt.plot(xRk4, yRk4[:, 0], '^-', label='Runge-Kutta 4')
-    plt.plot(xExact, yExact, 'k-', label='Exact (sin(x))')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title('Harmonic Oscillator Solutions')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-#Example run for Schrödinger equation eigenvalue
-def exampleSchrodinger():
-    alpha = 2.0
-    stepSize = 0.001
-    pInitial1 = 4.0
-    pInitial2 = 5.0
+def findSmallestEigenvalue():
+    alpha = 2
+    h = 0.001
+    p1Init = 4.0
+    p2Init = 5.0
     tolerance = 5e-6
 
-    #Finding eigenvalue
-    pRoot, iterates = falsePosition(pInitial1, pInitial2, alpha, stepSize, tolerance)
+    pRoot, iterates = findEigenvalueWithFalsePosition(p1Init, p2Init, alpha, h, tolerance)
 
-    #Computing the eigenfunction
-    def equationSystem(x, Y):
-        y, z = Y
-        dyDx = z
-        dzDx = -pRoot**2 * (1 + x)**(-alpha) * y
-        return np.array([dyDx, dzDx])
+    # Print iteration table
+    print("Iteration | p | phi(p)")
+    for i, (pIter, phiVal) in enumerate(iterates, 1):
+        print(f"{i:9d} | {pIter:.8f} | {phiVal:.3e}")
 
-    xInitial = 0.0
-    yInitial = np.array([0.0, 1.0])
+    print(f"\nApproximate smallest eigenvalue p(1) ≈ {pRoot:.8f}")
+
+def estimateStepSize():
+    h = 0.001
+    alpha = 2
+    pValues = np.linspace(0, 100, 500)
+    errorUpperBound = []
+
+    for p in pValues:
+        yN = computePhi(p, h=h, alpha=alpha)
+        y2n = computePhi(p, h=h/2, alpha=alpha)
+        upperBound = (15/14) * abs(yN - y2n)
+        errorUpperBound.append(upperBound)
+
+    # Plot error bounds
+    plt.plot(pValues, errorUpperBound)
+    plt.xlabel("p")
+    plt.ylabel(r"$\frac{15}{14} |Y_n - Y_{2n}|$")
+    plt.title("RK4 Global Error Upper Bound vs p")
+    plt.grid(True)
+    plt.show()
+
+# Plot phi for eigenvalue estimation
+def plotPhiValues():
+    pValues = np.linspace(0, 100, 500)
+    phiValues = np.array([computePhi(p, h=0.001, alpha=10) for p in pValues])
+    plt.plot(pValues, phiValues)
+    plt.xlabel("p")
+    plt.ylabel("phi(p)")
+    plt.grid(True)
+    plt.show()
+
+def computeMultipleEigenvalues():
+    alpha = 10
+    h = 0.001
     xTarget = 1.0
-    numSteps = int(xTarget / stepSize)
-    solver = Rk4Method(equationSystem, xInitial, yInitial, stepSize, numSteps)
-    xVals, yVals = solver.runMethod()
+    x0 = 0.0
+    Y0 = np.array([0.0, 1.0])
+    tolerance = 5e-6
 
-    #Normalizing the eigenfunction
-    weight = (1 + xVals) ** (-alpha)
-    normFactor = np.sqrt(np.trapz(weight * yVals[:, 0]**2, xVals))
-    yValsNormalized = yVals[:, 0] / normFactor
+    eigenvalues = []
+    eigenfunctions = []
 
-    #Plotting the eigenfunction
-    plt.plot(xVals, yValsNormalized, label=f'Eigenfunction, p≈{pRoot:.4f}')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title('Schrödinger Equation Eigenfunction')
+    brackets = [(12, 14), (26, 28), (39, 41), (52, 54), (65, 67)]
+
+    for k, (p1, p2) in enumerate(brackets, 1):
+        pRoot, iterates = findEigenvalueWithFalsePosition(p1, p2, alpha, h, tolerance)
+        eigenvalues.append(pRoot)
+
+        # Compute eigenfunction
+        nSteps = int(xTarget / h)
+        solver = RungeKutta4Solver(lambda x, Y: np.array([Y[1], -pRoot**2 * (1 + x)**(-alpha) * Y[0]]), x0, Y0, h, nSteps)
+        xVals, YVals = solver.solveOde()
+        yVals = YVals[:, 0]
+
+        # Apply energy normalization
+        weight = (1 + xVals) ** (-alpha)
+        normFactor = np.sqrt(np.trapz(weight * yVals**2, xVals))
+        yValsNormalized = yVals / normFactor
+        eigenfunctions.append((xVals, yValsNormalized))
+
+        # Print iteration table
+        print(f"\nEigenvalue {k} iterations:")
+        print("Iteration | p | phi(p)")
+        for i, (pIter, phiVal) in enumerate(iterates, 1):
+            print(f"{i:9d} | {pIter:.8f} | {phiVal:.3e}")
+        print(f"Approximated eigenvalue p({k}) ≈ {pRoot:.8f}")
+
+    # Plot normalized eigenfunctions
+    plt.figure(figsize=(10, 6))
+    for k, (xVals, yVals) in enumerate(eigenfunctions, 1):
+        plt.plot(xVals, yVals, label=f"y{k}, p≈{eigenvalues[k-1]:.4f}")
+    plt.xlabel("x")
+    plt.ylabel("y")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-if __name__ == "__main__":
-    exampleHarmonicOscillator()
-    exampleSchrodinger()
+    return eigenvalues, eigenfunctions
