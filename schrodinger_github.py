@@ -1,0 +1,290 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+
+def harmonic_schrodinger_system(x, y, E):
+    return [y[1], (x**2 - E) * y[0]]
+
+def solve_harmonic_wavefunction(E=2.9, x_max=5.0, r_tol=1e-9, a_tol=1e-12):
+    y0 = [0.0, 1.0]  # Odd initial conditions
+    x_span = (0, x_max)
+
+    f = lambda x, y: harmonic_schrodinger_system(x, y, E)
+    sol = solve_ivp(f, x_span, y0, method='RK45', rtol=r_tol, atol=a_tol, dense_output=True)
+
+    x_vals = np.linspace(0, x_max, 1000)
+    y_vals = sol.sol(x_vals)[0]
+
+    plt.plot(x_vals, y_vals, label=f'E = {E}')
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title(f'Harmonic Oscillator Wavefunction, E = {E}')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+    print(f"Y({x_max}) = {y_vals[-1]}")
+
+def analyze_convergence_harmonic():
+    #Analysing convergence of Y(5) for the harmonic oscillator with varying solver tolerances to find what tolerance to use for sufficent accuracy.
+    x_max = 5.0
+    y0 = [0.0, 1.0]
+    E = 2.9
+    x_span = (0, x_max)
+
+    tolerances = np.logspace(-3, -12, 10)
+    y5_values = []
+
+    for tol in tolerances:
+        f = lambda x, y: harmonic_schrodinger_system(x, y, E)
+        sol = solve_ivp(f, x_span, y0, method='RK45', rtol=tol, atol=tol, dense_output=True)
+        y5 = sol.sol(x_max)[0]
+        y5_values.append(y5)
+
+    delta_y = [abs(y5_values[i+1] - y5_values[i]) for i in range(len(y5_values)-1)]
+
+    threshold_8sf = 3e-6
+
+    plt.figure(figsize=(8,5))
+    plt.loglog(tolerances[1:], delta_y, marker='o')
+    plt.axhline(threshold_8sf, color='r', linestyle='--', label=r'8-SF threshold ($\Delta Y(5) \sim 3\cdot10^{-6}$)')
+    plt.xlabel('Tolerance (rtol = atol)')
+    plt.ylabel(r'$|\Delta Y(5)|$')
+    plt.title('Convergence of Y(5) with Decreasing Tolerances')
+    plt.grid(True, which='both')
+    plt.legend()
+    plt.show()
+
+    sol_true = solve_ivp(f, x_span, y0, method='RK45', rtol=1e-9, atol=1e-9, dense_output=True)
+    print(f"Y(5) with rTol=1e-6, aTol=1e-9: {sol_true.sol(x_max)[0]:.8f}")
+
+def compare_harmonic_wavefunctions():
+    #Plotting 2 wavefunctions on either side of the eigenvalue for comparison
+    x_max = 5.0
+    y0 = [0.0, 1.0]
+    energies = [2.9995, 3.0005]
+    x_vals = np.linspace(0, x_max, 1000)
+
+    plt.figure(figsize=(8,5))
+
+    for E in energies:
+        f = lambda x, y: harmonic_schrodinger_system(x, y, E)
+        sol = solve_ivp(f, (0, x_max), y0, method='RK45', rtol=1e-9, atol=1e-9, dense_output=True)
+        y_vals = sol.sol(x_vals)[0]
+        plt.plot(x_vals, y_vals, label=f'E = {E}')
+
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title('Harmonic Oscillator Wavefunctions for E = 2.9995 and 3.0005')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+def plot_harmonic_eigenfunction():
+    #Plotting the wavefucntion at the eigenvalue
+    x_max = 6.0
+    x_vals = np.linspace(0, x_max, 1000)
+    y0 = [0.0, 1.0]
+    f = lambda x, y: harmonic_schrodinger_system(x, y, E=3.0)
+    sol = solve_ivp(f, (0, x_max), y0, method='RK45', rtol=1e-9, atol=1e-9, dense_output=True)
+    y_vals = sol.sol(x_vals)[0]
+    plt.plot(x_vals, y_vals, label=f'E = 3.0')
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title('Harmonic Oscillator Wavefunction for E = 3.0')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+def quartic_potential(x, delta_v):
+    return -delta_v / (1 + x**4)
+
+def schrodinger_system_quartic(x, y, E, potential_func):
+    return [y[1], (potential_func(x) - E) * y[0]]
+
+def solve_quartic_wavefunction(E, x_max=5.0, delta_v=1.0, solution_type='odd', r_tol=1e-9, a_tol=1e-9):
+    #Plotting the wavefunction for the new potential
+    if solution_type.lower() == 'odd':
+        y0 = [0.0, 1.0]
+    elif solution_type.lower() == 'even':
+        y0 = [1.0, 0.0]
+    else:
+        raise ValueError("solution_type must be 'even' or 'odd'")
+
+    x_span = (0, x_max)
+    potential_func = lambda x: quartic_potential(x, delta_v)
+    f = lambda x, y: schrodinger_system_quartic(x, y, E, potential_func)
+
+    sol = solve_ivp(f, x_span, y0, method='RK45', rtol=r_tol, atol=a_tol, dense_output=True)
+
+    x_vals = np.linspace(0, x_max, 1000)
+    y_vals = sol.sol(x_vals)[0]
+
+    plt.plot(x_vals, y_vals, label=f'E={E}, type={solution_type}')
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title(f'Bound State for Quartic Potential (ΔV={delta_v})')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+    print(f"Y({x_max}) = {y_vals[-1]} for {solution_type} solution")
+
+def scan_quartic_bound_states():
+    #Finding the eigenvalues for this potential
+    x_max = 5.0
+    delta_v = 1.0
+    energies = np.arange(-1.0, 0.0, 0.01)
+    r_tol = 1e-9
+    a_tol = 1e-9
+
+    results = []
+
+    for E in energies:
+        for solution_type in ['even', 'odd']:
+            if solution_type == 'even':
+                y0 = [1.0, 0.0]
+            else:
+                y0 = [0.0, 1.0]
+            f = lambda x, y: schrodinger_system_quartic(x, y, E, lambda x: quartic_potential(x, delta_v))
+            sol = solve_ivp(f, (0, x_max), y0, method='RK45', rtol=r_tol, atol=a_tol)
+            y_xmax = sol.y[0, -1]
+            results.append((E, solution_type, y_xmax))
+
+    print(f"{'E':>6} | {'Type':>5} | {'Y(Xmax)':>12}")
+    print("-"*30)
+    for result in results:
+        print(f"{result[0]:6.2f} | {result[1]:>5} | {result[2]:12.6f}")
+    
+    x_vals = np.linspace(0, x_max, 1000)
+    for e_plot in [-0.45, -0.44]:
+        y0 = [1.0, 0.0]
+        f = lambda x, y: schrodinger_system_quartic(x, y, e_plot, lambda x: quartic_potential(x, delta_v))
+        sol = solve_ivp(f, (0, x_max), y0, method='RK45', rtol=r_tol, atol=a_tol, dense_output=True)
+        y_vals = sol.sol(x_vals)[0]
+        plt.plot(x_vals, y_vals, label=f'E={e_plot}, even')
+
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title('Even Solutions Near Bound State Energies')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+def find_quartic_eigenvalue_bisection(delta_v=1.0, x_max=7.0, r_tol=1e-9, a_tol=1e-9, tol_e=1e-3):
+    #Finding a bound state eigenvalue using bisection.
+    e_low = -delta_v
+    e_high = 0.0
+    solution_type = 'even'
+
+    def boundary_value(E):
+        if solution_type == 'even':
+            y0 = [1.0, 0.0]
+        else:
+            y0 = [0.0, 1.0]
+        f = lambda x, y: schrodinger_system_quartic(x, y, E, lambda x: quartic_potential(x, delta_v))
+        sol = solve_ivp(f, (0, x_max), y0, method='RK45', rtol=r_tol, atol=a_tol)
+        return sol.y[0, -1]
+
+    while (e_high - e_low) > tol_e:
+        e_mid = 0.5 * (e_low + e_high)
+        y_mid = boundary_value(e_mid)
+        y_low = boundary_value(e_low)
+        if y_low * y_mid < 0:
+            e_high = e_mid
+        else:
+            e_low = e_mid
+
+    e_eigen = 0.5 * (e_low + e_high)
+
+    x_vals = np.linspace(0, x_max, 1000)
+    y0 = [1.0, 0.0]
+
+    f_low = lambda x, y: schrodinger_system_quartic(x, y, e_low, lambda x: quartic_potential(x, delta_v))
+    sol_low = solve_ivp(f_low, (0, x_max), y0, method='RK45', rtol=r_tol, atol=a_tol, dense_output=True)
+    y_vals_low = sol_low.sol(x_vals)[0]
+
+    f_high = lambda x, y: schrodinger_system_quartic(x, y, e_high, lambda x: quartic_potential(x, delta_v))
+    sol_high = solve_ivp(f_high, (0, x_max), y0, method='RK45', rtol=r_tol, atol=a_tol, dense_output=True)
+    y_vals_high = sol_high.sol(x_vals)[0]
+
+    plt.plot(x_vals, y_vals_low, label=f'E_low={e_low:.3f}')
+    plt.plot(x_vals, y_vals_high, label=f'E_high={e_high:.3f}')
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title('Bracketing Wavefunctions for Bound State')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+    print(f"Estimated eigenvalue (3 s.f.): E = {e_eigen:.3f}")
+    print(f"Boundary values at bracketing energies: Y(Xmax)_low = {y_vals_low[-1]:.6f}, Y(Xmax)_high = {y_vals_high[-1]:.6f}")
+
+def find_quartic_eigenvalues_shooting(delta_v=36.0, x_max=10, r_tol=1e-8, a_tol=1e-10, n=500, refine_tol_e=1e-4, y_max_threshold=0.1):
+    #Finding the eigenvalues more accurately and plotting the wavefunctions that bracket the true eigenfunction
+    def boundary_value(E, solution_type):
+        if solution_type == 'even':
+            y0 = [1.0, 0.0]
+        else:
+            y0 = [0.0, 1.0]
+        f = lambda x, y: schrodinger_system_quartic(
+            x, y, E, lambda x: quartic_potential(x, delta_v))
+        sol = solve_ivp(f, (0.0, x_max), y0, method='RK45',
+                        rtol=r_tol, atol=a_tol)
+        return sol.y[0, -1]
+
+    energies = np.linspace(-delta_v, 0, n)
+    eigenvalues = []
+
+    for s_type in ['even', 'odd']:
+        y_boundary = np.array([boundary_value(E, s_type) for E in energies])
+
+        for i in range(len(energies)-1):
+            if y_boundary[i] * y_boundary[i+1] < 0:
+                e1 = energies[i]
+                e2 = energies[i+1]
+                for _ in range(30):
+                    e_mid = 0.5 * (e1 + e2)
+                    y_mid = boundary_value(e_mid, s_type)
+                    if y_boundary[i] * y_mid < 0:
+                        e2 = e_mid
+                    else:
+                        e1 = e_mid
+                eigen_e = 0.5 * (e1 + e2)
+                y_check = boundary_value(eigen_e, s_type)
+                if abs(y_check) < y_max_threshold:
+                    eigenvalues.append((eigen_e, s_type))
+                else:
+                    print(f"Rejected E≈{eigen_e:.3f}, |Y(Xmax)|={y_check:.2e} diverges")
+
+    eigenvalues.sort(key=lambda x: x[0])
+
+    for e, s_type in eigenvalues:
+        if s_type == 'even':
+            y0 = [1.0, 0.0]
+        else:
+            y0 = [0.0, 1.0]
+
+        f = lambda x, y: schrodinger_system_quartic(
+            x, y, e, lambda x: quartic_potential(x, delta_v))
+        sol = solve_ivp(f, (0.0, x_max), y0, method='RK45',
+                        rtol=r_tol, atol=a_tol, dense_output=True)
+
+        x_vals = np.linspace(0, x_max, 1000)
+        y_vals = sol.sol(x_vals)[0]
+
+        plt.plot(x_vals, y_vals, label=f"E={e:.3f}, {s_type}")
+
+        sign_change = np.sum(np.sign(y_vals[:-1]) * np.sign(y_vals[1:]) < 0)
+        print(f"{s_type:>4s}  E ≈ {e:.3f}  nodes (half domain) ≈ {sign_change}")
+
+    plt.xlabel('X')
+    plt.ylabel('Y(X)')
+    plt.title(f'Eigenfunctions for ΔV={delta_v}')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+    print("\nEigenvalues found (approx):")
+    for e, s_type in eigenvalues:
+        print(f"{s_type:>4s}  E ≈ {e:.3f}")
